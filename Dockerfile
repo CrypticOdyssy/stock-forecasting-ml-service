@@ -26,18 +26,14 @@ COPY src/ ./src/
 COPY wait-for-db.sh /usr/local/bin/wait-for-db
 RUN chmod +x /usr/local/bin/wait-for-db
 
-COPY example-client.py .
-
 # Expose the service port
 EXPOSE 8001
 
-# Make src visible as a top-level package
-ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8001/ || exit 1
 
 # Wait for database, then start the service
-ENTRYPOINT ["/usr/local/bin/wait-for-db"]
-CMD ["timescaledb:5432", "python3.11", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001", "--log-level", "info", "--access-log"]
+#ENTRYPOINT ["/usr/local/bin/wait-for-db"]"timescaledb:5432",
+CMD [ "python3.11", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001", "--log-level", "info", "--access-log"]

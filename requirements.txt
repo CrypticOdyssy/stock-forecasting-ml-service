@@ -12,3 +12,5 @@ cmdstanpy
 aiohttp==3.9.1
 python-dotenv==1.0.0
 httpx
+aiokafka
+kafka-python

@@ -1,21 +1,20 @@
 """
-FastAPI application - REST API entry point.
-Hexagonal architecture: Input adapter for HTTP requests.
+FastAPI application - REST API entry point with Kafka integration.
 """
 import sys
 import os
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 
-# Path setup
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(current_dir))
+project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 
-from src.api.schemas import (
+from api.schemas import (
     ForecastRequest,
     ForecastResponse,
     CompareForecastRequest,
@@ -24,41 +23,53 @@ from src.api.schemas import (
     ModelStatusResponse,
     ModelMetricsResponse,
 )
-from src.api.dependencies import get_service, get_preprocessing_client
-from src.domain.service import ForecastingService
-from src.domain.models import ForecastMethod
+from api.dependencies import get_service, get_preprocessing_client
+from domain.service import ForecastingService
+from domain.models import ForecastMethod
+from application.container import get_container
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Lifespan context for startup/shutdown.
-    Ensures graceful resource cleanup.
-    """
+    """Lifespan context for startup/shutdown with Kafka integration"""
     logger.info("Forecasting service starting...")
-    yield
-    logger.info("Forecasting service shutting down...")
+    container = get_container()
     
-    # Clean up external connections
     try:
+        # Start Kafka consumer in background
+        consumer = container.get_kafka_consumer()
+        asyncio.create_task(consumer.start())
+        logger.info("Kafka consumer started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start Kafka components: {e}", exc_info=True)
+    
+    yield
+    
+    logger.info("Forecasting service shutting down...")
+    try:
+        await container.shutdown()
+        
+        # Clean up preprocessing client
         preprocessing_client = get_preprocessing_client()
         await preprocessing_client.close()
-        logger.info("Preprocessing client closed")
+        logger.info("All resources closed")
     except Exception as e:
-        logger.error(f"Error closing preprocessing client: {e}")
+        logger.error(f"Error during shutdown: {e}", exc_info=True)
 
 
 app = FastAPI(
     title="Stock Forecasting Service",
-    description="Hexagonal architecture implementation using LSTM and Prophet",
+    description="Hexagonal architecture with event-driven capabilities",
     version="1.0.0",
     lifespan=lifespan
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -71,11 +82,31 @@ app.add_middleware(
 @app.get("/")
 async def root():
     """Health check endpoint"""
+    container = get_container()
+    consumer = container.get_kafka_consumer()
+    
     return {
         "service": "Stock Forecasting Service",
         "status": "running",
         "version": "1.0.0",
-        "methods": ["lstm", "prophet"]
+        "methods": ["lstm", "prophet"],
+        "kafka_consumer_running": consumer.is_running if consumer else False
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Detailed health check"""
+    container = get_container()
+    consumer = container.get_kafka_consumer()
+    
+    return {
+        "status": "healthy",
+        "components": {
+            "api": "running",
+            "kafka_consumer": "running" if (consumer and consumer.is_running) else "stopped",
+            "kafka_producer": "connected"
+        }
     }
 
 

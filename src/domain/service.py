@@ -8,11 +8,11 @@ import logging
 import pandas as pd
 import numpy as np
 
-from src.domain.models import (
+from domain.models import (
     Forecast, ForecastPoint, ComparativeForecast,
     ModelMetrics, ForecastMethod, ModelStatus
 )
-from src.domain.repositories import (
+from domain.repositories import (
     TimeSeriesRepository, ModelRepository, PreprocessingPort
 )
 
