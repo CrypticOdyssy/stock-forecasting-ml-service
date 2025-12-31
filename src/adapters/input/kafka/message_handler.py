@@ -7,6 +7,8 @@ from src.domain.service import ForecastingService
 from src.domain.models import ForecastMethod
 from src.domain.ports import IEventPublisher
 
+from shared import SimpleJobTracker
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +43,14 @@ class PreprocessingEventHandler:
             if not series_id or not job_id:
                 raise ValueError("Missing required fields: series_id or job_id")
             
+            # Mark forecasting as started
+            SimpleJobTracker.update_status(
+                job_id=job_id,
+                series_id=series_id,
+                status='running',
+                stage='forecasting'
+            )
+            
             # Get forecast configuration
             method = ForecastMethod(forecast_config.get('method', 'lstm'))
             horizon = forecast_config.get('horizon', 30)
@@ -51,6 +61,16 @@ class PreprocessingEventHandler:
                 series_id,
                 method,
                 horizon
+            )
+
+            SimpleJobTracker.update_status(
+                job_id=job_id,
+                series_id=series_id,
+                status='completed',
+                stage='forecasting',
+                metadata={
+                    'horizon': horizon
+                }
             )
             
             # Publish success event
@@ -63,7 +83,6 @@ class PreprocessingEventHandler:
                 metadata={
                     'mape': forecast.mape,
                     'rmse': forecast.rmse,
-                    **forecast.metadata
                 }
             )
             
@@ -73,6 +92,13 @@ class PreprocessingEventHandler:
             logger.error(f"Error processing preprocessing completion event: {e}", exc_info=True)
             
             if series_id and job_id:
+                SimpleJobTracker.update_status(
+                    job_id=job_id,
+                    series_id=series_id,
+                    status='failed',
+                    stage='forecasting',
+                    error_message=str(e)
+                )
                 await self.event_publisher.publish_processing_failed(
                     series_id=series_id,
                     job_id=job_id,
